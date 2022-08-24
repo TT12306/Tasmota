@@ -1,0 +1,142 @@
+substitutions:
+  name: "aiyato-cw"
+  friendly_name: "AiYaTo CW"
+  project_name: "doit.aiyato-cw"
+  project_version: "1.0.0"
+  light_restore_mode: RESTORE_DEFAULT_ON
+
+esphome:
+  name: "${name}"
+  name_add_mac_suffix: true       
+  project:
+    name: "${project_name}"
+    version: "${project_version}"
+  
+preferences:
+  flash_write_interval: 1min
+
+esp8266:
+  board: esp8285
+  restore_from_flash: true
+  
+globals:
+  - id: my_global_mode
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+
+logger:
+
+api:
+
+ota:
+  safe_mode: false
+
+wifi:
+  ap: {}
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          static uint32_t cnt = 0;
+          static int flag = 0;
+          static ESPPreferenceObject pref = global_preferences->make_preference<uint32_t>(23332500UL, true);
+          if((flag == 1) && (network::is_connected()))
+          {
+            flag = 0;
+            ESP.restart();
+          }
+          if(cnt == 0){
+            cnt++;
+            uint32_t val = 0;
+            pref.load(&val);
+            val+=1;
+            pref.save(&val);
+            global_preferences->sync();
+            ESP_LOGD("dd", "val ------------- %d", val);
+            if(val >= 3){
+              ESP_LOGD("dd", "val > 3");
+              my_global_mode->value() = false;
+            }
+          }else if(cnt < 5){
+            cnt++;
+            if(cnt == 5){
+              uint32_t val = 0;
+              pref.save(&val);
+              global_preferences->sync();
+              ESP_LOGD("dd", "val clear");
+            }
+          }
+          if(!my_global_mode->value()){
+            if(cnt == 1){
+              char a[] = "000000";  
+              char b[] = "000000";
+              wifi_wificomponent->clear_sta();
+              wifi_wificomponent->save_wifi_sta(a, b);
+              wifi::WiFiAP wifi_wifiap = wifi::WiFiAP();
+              wifi_wificomponent->set_ap(wifi_wifiap);
+              wifi_wificomponent->set_ap_timeout(5000);
+              flag = 1;
+            }
+            static int state = 0;
+            auto call = id(my_light).turn_on();
+            call.set_transition_length(1000);
+            call.set_brightness(1.0);
+            if (state == 0) {        
+              call.set_cold_white(1.0);
+              call.set_warm_white(0.0);
+            } else if (state == 2) {        
+              call.set_cold_white(0.0);
+              call.set_warm_white(1.0);
+            } else if (state == 4) {        
+              call.set_cold_white(1.0);
+              call.set_warm_white(0.0);
+            } 
+            call.perform();
+            state += 1;
+            if (state == 5)
+              my_global_mode->value() = true;
+          }
+
+web_server:
+  port: 80
+
+captive_portal:
+
+binary_sensor:
+  - platform: status
+    name: "${friendly_name} Status"
+
+sensor:
+  - platform: uptime
+    update_interval: 60s
+    name: "${friendly_name} Uptime"
+
+button:
+  - platform: restart
+    name: "${friendly_name} Restart"
+
+output:
+  - platform: esp8266_pwm
+    id: cold_white_output
+    pin: GPIO4
+  - platform: esp8266_pwm
+    id: warm_white_output
+    pin: GPIO13
+
+light:
+  - platform: cwww
+    name: "${friendly_name}"
+    restore_mode: "${light_restore_mode}"
+    cold_white: cold_white_output
+    warm_white: warm_white_output
+    cold_white_color_temperature: 6000 K
+    warm_white_color_temperature: 3000 K
+    id: my_light
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "${friendly_name} IP Address"
+      disabled_by_default: true

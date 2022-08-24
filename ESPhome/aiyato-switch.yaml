@@ -1,0 +1,129 @@
+substitutions:
+  name: "aiyato-switch"
+  friendly_name: "AiYaTo SWITCH"
+  project_name: "doit.aiyato-switch"
+  project_version: "1.0.0"
+  relay_restore_mode: RESTORE_DEFAULT_OFF
+
+esphome:
+  name: "${name}"
+  name_add_mac_suffix: true
+  project:
+    name: "${project_name}"
+    version: "${project_version}"
+
+esp8266:
+  board: esp8285
+  restore_from_flash: true
+  
+globals:
+  - id: my_global_flag
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+
+api:
+
+ota:
+  safe_mode: false
+
+logger:
+
+web_server:
+  port: 80
+
+wifi:
+  ap: {}
+
+captive_portal:
+
+binary_sensor:
+  - platform: status
+    name: "${friendly_name} Status"
+
+  - platform: gpio
+    pin:
+      number: GPIO4
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "${friendly_name} Power Button"
+    disabled_by_default: true
+    on_multi_click:
+      - timing:
+          - ON for at most 1s
+          - OFF for at least 0.2s
+        then:
+          - switch.toggle: relay
+      - timing:
+          - ON for at least 5s
+          - OFF for at least 0.2s
+        then:
+          - lambda: |-
+              char a[] = "000000";
+              char b[] = "000000";
+              wifi_wificomponent->clear_sta();
+              wifi_wificomponent->save_wifi_sta(a, b);
+              my_global_flag->value() = false;
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          static uint32_t val = 0;
+          static ESPPreferenceObject pref = global_preferences->make_preference<uint32_t>(23332500UL, true);
+          pref.load(&val);
+          if(my_global_flag->value() == false){
+            val = 1;
+            pref.save(&val);
+            global_preferences->sync();
+            ESP.restart();
+          }
+          if(val == 1 && (network::is_connected())){
+            val = 0;
+            pref.save(&val);
+            global_preferences->sync();
+            ESP.restart();
+          }
+          static int ap_flag = 0;
+          if(ap_flag == 0 && val == 1){
+            wifi::WiFiAP wifi_wifiap = wifi::WiFiAP();
+            wifi_wificomponent->set_ap(wifi_wifiap);
+            wifi_wificomponent->set_ap_timeout(5000);
+            ap_flag = 1;
+          }
+
+sensor:
+  - platform: uptime
+    name: "${friendly_name} Uptime"
+    disabled_by_default: true
+
+button:
+  - platform: restart
+    id: restart_button
+    name: "${friendly_name} Restart"
+
+switch:
+  - platform: gpio
+    name: "${friendly_name}"
+    pin: GPIO12
+    id: relay
+    restore_mode: ${relay_restore_mode}
+    on_turn_on:
+      - light.turn_on: blue_led
+    on_turn_off:
+      - light.turn_off: blue_led
+
+light:
+  - platform: status_led
+    name: "${friendly_name} Status LED"
+    id: blue_led
+    disabled_by_default: true
+    pin:
+      inverted: true
+      number: GPIO5
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "${friendly_name} IP Address"
+      disabled_by_default: true
